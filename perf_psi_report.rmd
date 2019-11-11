@@ -1,0 +1,104 @@
+---
+title: "per_psi_report"
+author: "Shahzeb Kohari"
+date: "11/10/2019"
+output: word_document
+---
+
+```{r setup, include=T}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, echo = FALSE)
+options(digits = 4)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r data_prep}
+library(scorecard)
+
+# load germancredit data
+data("germancredit") # target variable ("1/0") is 'creditability'
+# filter variable via missing rate, iv, identical value rate
+dt_f = var_filter(germancredit, y="creditability")
+# breaking dt into train and test
+dt_list = split_df(dt_f, y="creditability", ratio = 0.6, seed = 30)
+label_list = lapply(dt_list, function(x) x$creditability)
+
+# woe binning ------
+bins = woebin(dt_f, y="creditability")
+breaks_adj = list(
+  age.in.years=c(26, 35, 40),
+  other.debtors.or.guarantors=c("none", "co-applicant%,%guarantor"))
+bins_adj = woebin(dt_f, y="creditability", breaks_list=breaks_adj)
+# converting train and test into woe values
+dt_woe_list = lapply(dt_list, function(x) woebin_ply(x, bins_adj))
+# glm ------
+m1 = glm( creditability ~ ., family = binomial(), data = dt_woe_list$train)
+# vif(m1, merge_coef = TRUE) # summary(m1)
+# Select a formula-based model by AIC (or by LASSO for large dataset)
+m_step = step(m1, direction="both", trace = FALSE)
+m2 = eval(m_step$call)
+
+```
+
+
+
+
+
+## get data ready
+
+```{r data_vector_ready}
+
+# performance ks & roc ------
+## predicted probability
+pred_list = lapply(dt_woe_list, function(x) predict(m2, x, type='response'))
+
+## target variable list
+label_list = lapply(dt_list, function(x) x$creditability)
+
+
+```
+
+
+## KS Assessment
+
+You can also embed plots:
+
+```{r per_eval}
+
+per = perf_eva(pred = pred_list, label = label_list, show_plot = c('ks'))
+print(per)
+```
+
+
+
+## AUC Assessment
+
+```{r auc}
+per = perf_eva(pred = pred_list, label = label_list, show_plot = c('roc'))
+print(per)
+```
+
+## PSI Assessment
+```{r psi}
+ppsi <- perf_psi(score = pred_list,  label = label_list)
+ppsi$pic$pred$data
+```
+
+## Gains Assessment (Capture)
+
+
+
+```{r gains}
+
+# g1 <- gains_table(score = score_list$train, label = label_list$train)
+g2 <- gains_table(score = pred_list$train, label = label_list$train)
+g2
+a <- g2$cum_bad/g2$cum_bad[10]
+print(a)
+```
+
+The capture rate at 40% was `r a[4]`
